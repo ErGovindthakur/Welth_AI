@@ -7,8 +7,59 @@ import { Toaster } from "sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "Welth",
-  description: "One stop Finance Platform",
+  title: {
+    default: "Wealth AI — Smart Finance Management",
+    template: "%s | Wealth AI",
+  },
+
+  description:
+    "Wealth AI helps you track income, manage expenses, and get AI-powered financial insights to grow your money smarter.",
+
+  keywords: [
+    "finance app",
+    "expense tracker",
+    "AI finance",
+    "money management",
+    "budget planner",
+    "personal finance AI",
+    "wealth management app",
+  ],
+
+  metadataBase: new URL("https://welth-ai.online"),
+
+  openGraph: {
+    title: "Wealth AI — Smart Finance Management",
+    description:
+      "Track income, control expenses, and get AI-driven financial insights.",
+
+    url: "https://welth-ai.online",
+    siteName: "Wealth AI",
+
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Wealth AI Dashboard Preview",
+      },
+    ],
+
+    locale: "en_US",
+    type: "website",
+  },
+
+  twitter: {
+    card: "summary_large_image",
+    title: "Wealth AI — Smart Finance Management",
+    description:
+      "AI-powered personal finance platform to manage money smarter.",
+    images: ["/og-image.png"],
+  },
+
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({ children }) {
