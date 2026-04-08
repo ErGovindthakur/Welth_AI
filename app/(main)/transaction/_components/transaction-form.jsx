@@ -94,18 +94,69 @@ export function AddTransactionForm({
     }
   };
 
+  // const handleScanComplete = (scannedData) => {
+  //   if (scannedData) {
+  //     setValue("amount", scannedData.amount.toString());
+  //     setValue("date", new Date(scannedData.date));
+  //     if (scannedData.description) {
+  //       setValue("description", scannedData.description);
+  //     }
+  //     if (scannedData.category) {
+  //       setValue("category", scannedData.category);
+  //     }
+  //     toast.success("Receipt scanned successfully");
+  //   }
+  // };
+
   const handleScanComplete = (scannedData) => {
-    if (scannedData) {
-      setValue("amount", scannedData.amount.toString());
+
+    if (!scannedData) return;
+
+    // Amount
+    setValue("amount", scannedData.amount.toString());
+
+    // Date
+    if (scannedData.date && !isNaN(new Date(scannedData.date))) {
       setValue("date", new Date(scannedData.date));
-      if (scannedData.description) {
-        setValue("description", scannedData.description);
-      }
-      if (scannedData.category) {
-        setValue("category", scannedData.category);
-      }
-      toast.success("Receipt scanned successfully");
     }
+
+    // Description
+    if (scannedData.description) {
+      setValue("description", scannedData.description);
+    }
+
+    // ✅ Set TYPE first
+    if (scannedData.type) {
+      setValue("type", scannedData.type);
+    }
+
+    // ✅ CATEGORY FIX (IMPORTANT)
+    setTimeout(() => {
+      if (scannedData.category) {
+        const normalizedScan = scannedData.category.toLowerCase();
+
+        const matchedCategory = categories.find((cat) => {
+          const name = cat.name.toLowerCase();
+
+          return (
+            name === normalizedScan || // exact match
+            name.includes(normalizedScan) || // partial match
+            normalizedScan.includes(name) // reverse match
+          );
+        });
+
+        if (matchedCategory) {
+          console.log("✅ MATCH FOUND:", matchedCategory);
+
+          // 🔥 IMPORTANT: use ID (not name)
+          setValue("category", matchedCategory.id);
+        } else {
+          console.log("❌ NO MATCH:", scannedData.category);
+        }
+      }
+    }, 100);
+
+    toast.success("Receipt scanned successfully");
   };
 
   useEffect(() => {
@@ -113,7 +164,7 @@ export function AddTransactionForm({
       toast.success(
         editMode
           ? "Transaction updated successfully"
-          : "Transaction created successfully"
+          : "Transaction created successfully",
       );
       reset();
       router.push(`/account/${transactionResult.data.accountId}`);
@@ -125,7 +176,7 @@ export function AddTransactionForm({
   const date = watch("date");
 
   const filteredCategories = categories.filter(
-    (category) => category.type === type
+    (category) => category.type === type,
   );
 
   return (
@@ -202,9 +253,13 @@ export function AddTransactionForm({
       {/* Category */}
       <div className="space-y-2">
         <label className="text-sm font-medium">Category</label>
-        <Select
+        {/* <Select
           onValueChange={(value) => setValue("category", value)}
           defaultValue={getValues("category")}
+        > */}
+        <Select
+          value={watch("category")} // 🔥 FIX
+          onValueChange={(value) => setValue("category", value)}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select category" />
@@ -231,10 +286,15 @@ export function AddTransactionForm({
               variant="outline"
               className={cn(
                 "w-full pl-3 text-left font-normal",
-                !date && "text-muted-foreground"
+                !date && "text-muted-foreground",
               )}
             >
-              {date ? format(date, "PPP") : <span>Pick a date</span>}
+              {/* {date ? format(date, "PPP") : <span>Pick a date</span>} */}
+              {date && !isNaN(new Date(date).getTime()) ? (
+                format(new Date(date), "PPP")
+              ) : (
+                <span>Pick a date</span>
+              )}
               <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
             </Button>
           </PopoverTrigger>
@@ -242,7 +302,12 @@ export function AddTransactionForm({
             <Calendar
               mode="single"
               selected={date}
-              onSelect={(date) => setValue("date", date)}
+              // onSelect={(date) => setValue("date", date)}
+              onSelect={(selectedDate) => {
+                if (selectedDate && !isNaN(selectedDate.getTime())) {
+                  setValue("date", selectedDate);
+                }
+              }}
               disabled={(date) =>
                 date > new Date() || date < new Date("1900-01-01")
               }
