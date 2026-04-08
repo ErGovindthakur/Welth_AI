@@ -9,40 +9,114 @@ import { request } from "@arcjet/next";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+
 const serializeAmount = (obj) => ({
   ...obj,
   amount: obj.amount.toNumber(),
 });
 
 // Create Transaction
+// export async function createTransaction(data) {
+//   try {
+//     const { userId } = await auth();
+//     if (!userId) throw new Error("Unauthorized");
+
+//     // Get request data for ArcJet
+//     const req = await request();
+
+//     // Check rate limit
+//     const decision = await aj.protect(req, {
+//       userId,
+//       requested: 1, // Specify how many tokens to consume
+//     });
+
+//     if (decision.isDenied()) {
+//       if (decision.reason.isRateLimit()) {
+//         const { remaining, reset } = decision.reason;
+//         console.error({
+//           code: "RATE_LIMIT_EXCEEDED",
+//           details: {
+//             remaining,
+//             resetInSeconds: reset,
+//           },
+//         });
+
+//         throw new Error("Too many requests. Please try again later.");
+//       }
+
+//       throw new Error("Request blocked");
+//     }
+
+//     const user = await db.user.findUnique({
+//       where: { clerkUserId: userId },
+//     });
+
+//     if (!user) {
+//       throw new Error("User not found");
+//     }
+
+//     const account = await db.account.findUnique({
+//       where: {
+//         id: data.accountId,
+//         userId: user.id,
+//       },
+//     });
+
+//     if (!account) {
+//       throw new Error("Account not found");
+//     }
+
+//     // Calculate new balance
+//     const balanceChange = data.type === "EXPENSE" ? -data.amount : data.amount;
+//     const newBalance = account.balance.toNumber() + balanceChange;
+
+//     // Create transaction and update account balance
+//     const transaction = await db.$transaction(async (tx) => {
+//       const newTransaction = await tx.transaction.create({
+//         data: {
+//           ...data,
+//           userId: user.id,
+//           nextRecurringDate:
+//             data.isRecurring && data.recurringInterval
+//               ? calculateNextRecurringDate(data.date, data.recurringInterval)
+//               : null,
+//         },
+//       });
+
+//       await tx.account.update({
+//         where: { id: data.accountId },
+//         data: { balance: newBalance },
+//       });
+
+//       return newTransaction;
+//     });
+
+//     revalidatePath("/dashboard");
+//     revalidatePath(`/account/${transaction.accountId}`);
+
+//     return { success: true, data: serializeAmount(transaction) };
+//   } catch (error) {
+//     throw new Error(error.message);
+//   }
+// }
+
+// my create Transaction code 
 export async function createTransaction(data) {
   try {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    // Get request data for ArcJet
+    // ArcJet
     const req = await request();
-
-    // Check rate limit
     const decision = await aj.protect(req, {
       userId,
-      requested: 1, // Specify how many tokens to consume
+      requested: 1,
     });
 
     if (decision.isDenied()) {
       if (decision.reason.isRateLimit()) {
-        const { remaining, reset } = decision.reason;
-        console.error({
-          code: "RATE_LIMIT_EXCEEDED",
-          details: {
-            remaining,
-            resetInSeconds: reset,
-          },
-        });
-
         throw new Error("Too many requests. Please try again later.");
       }
-
       throw new Error("Request blocked");
     }
 
@@ -50,9 +124,7 @@ export async function createTransaction(data) {
       where: { clerkUserId: userId },
     });
 
-    if (!user) {
-      throw new Error("User not found");
-    }
+    if (!user) throw new Error("User not found");
 
     const account = await db.account.findUnique({
       where: {
@@ -61,34 +133,50 @@ export async function createTransaction(data) {
       },
     });
 
-    if (!account) {
-      throw new Error("Account not found");
+    if (!account) throw new Error("Account not found");
+
+    // ✅ FIX 1 — sanitize amount
+    const amount = Number(data.amount);
+
+    if (isNaN(amount)) {
+      throw new Error("Invalid amount");
     }
 
-    // Calculate new balance
-    const balanceChange = data.type === "EXPENSE" ? -data.amount : data.amount;
-    const newBalance = account.balance.toNumber() + balanceChange;
+    // ✅ FIX 2 — correct balance change
+    const balanceChange =
+      data.type === "EXPENSE" ? -amount : amount;
 
-    // Create transaction and update account balance
-    const transaction = await db.$transaction(async (tx) => {
-      const newTransaction = await tx.transaction.create({
-        data: {
-          ...data,
-          userId: user.id,
-          nextRecurringDate:
-            data.isRecurring && data.recurringInterval
-              ? calculateNextRecurringDate(data.date, data.recurringInterval)
-              : null,
-        },
-      });
+    // ✅ FIX 3 — transaction safe + increment
+    const transaction = await db.$transaction(
+      async (tx) => {
+        const newTransaction = await tx.transaction.create({
+          data: {
+            ...data,
+            amount, // ✅ always number
+            userId: user.id,
+            nextRecurringDate:
+              data.isRecurring && data.recurringInterval
+                ? calculateNextRecurringDate(
+                    data.date,
+                    data.recurringInterval
+                  )
+                : null,
+          },
+        });
 
-      await tx.account.update({
-        where: { id: data.accountId },
-        data: { balance: newBalance },
-      });
+        await tx.account.update({
+          where: { id: data.accountId },
+          data: {
+            balance: {
+              increment: balanceChange, // ✅ SAFE
+            },
+          },
+        });
 
-      return newTransaction;
-    });
+        return newTransaction;
+      },
+      { timeout: 10000 } // ✅ FIX 4 — prevent timeout
+    );
 
     revalidatePath("/dashboard");
     revalidatePath(`/account/${transaction.accountId}`);
@@ -227,68 +315,77 @@ export async function getUserTransactions(query = {}) {
   }
 }
 
-// Scan Receipt
-export async function scanReceipt(file) {
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// // Scan Receipt
+// export async function scanReceipt(file) {
+//   try {
+//     // const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // Convert File to ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer();
-    // Convert ArrayBuffer to Base64
-    const base64String = Buffer.from(arrayBuffer).toString("base64");
+//     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+//     // console.log(await genAI.listModels());
+//     // Convert File to ArrayBuffer
+//     const arrayBuffer = await file.arrayBuffer();
+//     // Convert ArrayBuffer to Base64
+//     const base64String = Buffer.from(arrayBuffer).toString("base64");
 
-    const prompt = `
-      Analyze this receipt image and extract the following information in JSON format:
-      - Total amount (just the number)
-      - Date (in ISO format)
-      - Description or items purchased (brief summary)
-      - Merchant/store name
-      - Suggested category (one of: housing,transportation,groceries,utilities,entertainment,food,shopping,healthcare,education,personal,travel,insurance,gifts,bills,other-expense )
-      
-      Only respond with valid JSON in this exact format:
-      {
-        "amount": number,
-        "date": "ISO date string",
-        "description": "string",
-        "merchantName": "string",
-        "category": "string"
-      }
+//     const prompt = `
+//       Analyze this receipt image and extract the following information in JSON format:
+//       - Total amount (just the number)
+//       - Date (in ISO format)
+//       - Description or items purchased (brief summary)
+//       - Merchant/store name
+//       - Suggested category (one of: housing,transportation,groceries,utilities,entertainment,food,shopping,healthcare,education,personal,travel,insurance,gifts,bills,other-expense )
 
-      If its not a recipt, return an empty object
-    `;
+//       Only respond with valid JSON in this exact format:
+//       {
+//         "amount": number,
+//         "date": "ISO date string",
+//         "description": "string",
+//         "merchantName": "string",
+//         "category": "string"
+//       }
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          data: base64String,
-          mimeType: file.type,
-        },
-      },
-      prompt,
-    ]);
+//       If its not a recipt, return an empty object
+//     `;
 
-    const response = await result.response;
-    const text = response.text();
-    const cleanedText = text.replace(/```(?:json)?\n?/g, "").trim();
+//     const result = await model.generateContent([
+//       {
+//         inlineData: {
+//           data: base64String,
+//           mimeType: file.type,
+//         },
+//       },
+//       prompt,
+//     ]);
 
-    try {
-      const data = JSON.parse(cleanedText);
-      return {
-        amount: parseFloat(data.amount),
-        date: new Date(data.date),
-        description: data.description,
-        category: data.category,
-        merchantName: data.merchantName,
-      };
-    } catch (parseError) {
-      console.error("Error parsing JSON response:", parseError);
-      throw new Error("Invalid response format from Gemini");
-    }
-  } catch (error) {
-    console.error("Error scanning receipt:", error);
-    throw new Error("Failed to scan receipt");
-  }
+//     const response = await result.response;
+//     const text = response.text();
+//     const cleanedText = text.replace(/```(?:json)?\n?/g, "").trim();
+
+//     try {
+//       const data = JSON.parse(cleanedText);
+//       return {
+//         amount: parseFloat(data.amount),
+//         date: new Date(data.date),
+//         description: data.description,
+//         category: data.category,
+//         merchantName: data.merchantName,
+//       };
+//     } catch (parseError) {
+//       console.error("Error parsing JSON response:", parseError);
+//       throw new Error("Invalid response format from Gemini");
+//     }
+//   } catch (error) {
+//     console.error("Error scanning receipt:", error);
+//     throw new Error("Failed to scan receipt");
+//   }
+// }
+
+
+// Scan Receipt (FREE OCR VERSION - SAME STRUCTURE)
+export async function scanReceipt() {
+  throw new Error("scanReceipt is now handled on client side");
 }
+
 
 // Helper function to calculate next recurring date
 function calculateNextRecurringDate(startDate, interval) {
