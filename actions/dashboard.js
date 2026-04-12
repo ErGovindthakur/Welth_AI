@@ -1,5 +1,5 @@
 "use server";
-
+import { checkUser } from "@/lib/checkUser";
 import aj from "@/lib/arcjet";
 import { db } from "@/lib/prisma";
 import { request } from "@arcjet/next";
@@ -17,17 +17,44 @@ const serializeTransaction = (obj) => {
   return serialized;
 };
 
+// export async function getUserAccounts() {
+//   const { userId } = await auth();
+//   if (!userId) throw new Error("Unauthorized");
+
+//   const user = await db.user.findUnique({
+//     where: { clerkUserId: userId },
+//   });
+
+//   if (!user) {
+//     throw new Error("User not found");
+//   }
+
+//   try {
+//     const accounts = await db.account.findMany({
+//       where: { userId: user.id },
+//       orderBy: { createdAt: "desc" },
+//       include: {
+//         _count: {
+//           select: {
+//             transactions: true,
+//           },
+//         },
+//       },
+//     });
+
+//     // Serialize accounts before sending to client
+//     const serializedAccounts = accounts.map(serializeTransaction);
+
+//     return serializedAccounts;
+//   } catch (error) {
+//     console.error(error.message);
+//   }
+// }
+
 export async function getUserAccounts() {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Unauthorized");
+  const user = await checkUser(); // ✅ FIXED
 
-  const user = await db.user.findUnique({
-    where: { clerkUserId: userId },
-  });
-
-  if (!user) {
-    throw new Error("User not found");
-  }
+  if (!user) throw new Error("Unauthorized");
 
   try {
     const accounts = await db.account.findMany({
@@ -35,17 +62,12 @@ export async function getUserAccounts() {
       orderBy: { createdAt: "desc" },
       include: {
         _count: {
-          select: {
-            transactions: true,
-          },
+          select: { transactions: true },
         },
       },
     });
 
-    // Serialize accounts before sending to client
-    const serializedAccounts = accounts.map(serializeTransaction);
-
-    return serializedAccounts;
+    return accounts.map(serializeTransaction);
   } catch (error) {
     console.error(error.message);
   }
@@ -82,13 +104,17 @@ export async function createAccount(data) {
       throw new Error("Request blocked");
     }
 
-    const user = await db.user.findUnique({
-      where: { clerkUserId: userId },
-    });
+    // const user = await db.user.findUnique({
+    //   where: { clerkUserId: userId },
+    // });
 
-    if (!user) {
-      throw new Error("User not found");
-    }
+    // if (!user) {
+    //   throw new Error("User not found");
+    // }
+
+    const user = await checkUser(); // ✅ FIXED
+
+    if (!user) throw new Error("Unauthorized");
 
     // Convert balance to float before saving
     const balanceFloat = parseFloat(data.balance);
@@ -138,13 +164,9 @@ export async function getDashboardData() {
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 
-  const user = await db.user.findUnique({
-    where: { clerkUserId: userId },
-  });
+  const user = await checkUser(); // ✅ FIXED
 
-  if (!user) {
-    throw new Error("User not found");
-  }
+  if (!user) throw new Error("Unauthorized");
 
   // Get all user transactions
   const transactions = await db.transaction.findMany({
