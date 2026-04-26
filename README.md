@@ -6,7 +6,7 @@ Wealth AI is a full-stack finance management platform built with Next.js that en
 
 ## 🚀 Live Demo
 
-👉 Coming Soon (Deployment in progress)
+👉 https://welth-ai.online/
 
 ---
 
